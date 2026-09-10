@@ -804,13 +804,10 @@ BarWidget {
   function ejectPlugin(id, region, anchorName, after) {
     var key = String(id || "")
     if (!key || key === root.moduleName) return
-    root.removeFromPluginsAndAddToLayout(key, region, anchorName, after)
     var list = root.configuredIds.slice()
     var idx = list.indexOf(key)
-    if (idx !== -1) {
-      list.splice(idx, 1)
-      root.persistWidgets(list)
-    }
+    if (idx !== -1) list.splice(idx, 1)
+    root.ejectToLayout(key, region, anchorName, after, list)
   }
 
   function ejectTrayIcon(id) {
@@ -2274,12 +2271,14 @@ BarWidget {
     shell.mutateShellConfig(mutator)
   }
 
-  function removeFromLayoutAndKeepEnabled(key) {
+  // Tuck a bar widget into the drawer. The layout -> plugins[] move and the
+  // widgets-array write share ONE mutateShellConfig so the whole change lands
+  // in a single atomic write; two back-to-back mutations race and the second
+  // (the widgets list) can be dropped by the reload on the first.
+  function tuckKey(key, list) {
     var shell = root.hostBar && root.hostBar.shell
     if (!shell || !shell.shellConfig) return
-    var inLayout = root.layoutHasId(key)
-    var inPlugins = root.pluginsHasId(key)
-    if (!inLayout && inPlugins) return
+    if (!root.layoutHasId(key)) return
     // Carry the layout entry's inline settings into the plugins[] entry so
     // tucking a configured widget away never silently drops its settings.
     // Den-specific keys (widgets/icons) are not settings and stay behind.
@@ -2291,6 +2290,7 @@ BarWidget {
       }
     }
     var sections = DenModel.sections()
+    var denId = root.moduleName
     root.mutateConfig(function(c) {
       if (!c) return
       if (c.bar && c.bar.layout) {
@@ -2315,13 +2315,16 @@ BarWidget {
         }
       }
       if (!exists) { carried.id = key; c.plugins.push(carried) }
+      var denEntry = DenModel.findLayoutEntry(c, denId)
+      if (denEntry) denEntry.widgets = list.slice()
     })
   }
 
   // Return a plugin to the layout. With an anchor slot (from a drag-out
   // release over the bar) it inserts exactly before/after it; without one it
-  // lands at the right-section end, just before omarchy.power.
-  function removeFromPluginsAndAddToLayout(key, region, anchorName, after) {
+  // lands at the right-section end, just before omarchy.power. Same single
+  // atomic write as tuckKey, so the widget and the widgets list move together.
+  function ejectToLayout(key, region, anchorName, after, list) {
     var shell = root.hostBar && root.hostBar.shell
     if (!shell || !shell.shellConfig) return
     var inLayout = root.layoutHasId(key)
@@ -2341,6 +2344,7 @@ BarWidget {
     if (targetRegion !== "left" && targetRegion !== "center" && targetRegion !== "right")
       targetRegion = "right"
     var anchor = String(anchorName || "")
+    var denId = root.moduleName
     root.mutateConfig(function(c) {
       if (!c) return
       if (Array.isArray(c.plugins)) {
@@ -2380,6 +2384,8 @@ BarWidget {
           for (var mk in carried) if (!(mk in srcEntry)) srcEntry[mk] = carried[mk]
         }
       }
+      var denEntry = DenModel.findLayoutEntry(c, denId)
+      if (denEntry) denEntry.widgets = list.slice()
     })
   }
 
@@ -2390,9 +2396,8 @@ BarWidget {
     var idx = list.indexOf(key)
     if (hide && idx === -1) list.push(key)
     else if (!hide && idx !== -1) list.splice(idx, 1)
-    if (hide) root.removeFromLayoutAndKeepEnabled(key)
-    else root.removeFromPluginsAndAddToLayout(key)
-    root.persistWidgets(list)
+    if (hide) root.tuckKey(key, list)
+    else root.ejectToLayout(key, "", "", false, list)
   }
 
   // Reconcile on load: every configured id stays enabled via plugins[] so the
