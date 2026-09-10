@@ -14,6 +14,41 @@ New tray apps and plugin widgets pile up on the bar. Den gives them one home:
 unpinned tray apps appear automatically, and any bar widget can be dragged in
 — leaving your bar minimal and your overflow one click away.
 
+## Omarchy 4.0.3 compatibility
+
+On Omarchy 4.0.3+ the stock bar injects a scoped `PluginBarApi` into
+third-party widgets — without the widget registry, full shell config, or drag
+state that Den relies on. Den locates the real host bar through a built-in
+sibling widget in the same visual tree. This is an internal compatibility
+bridge, **not a supported public API**: Den gains direct access to the bar and
+its shell, as on earlier versions. It requires the stock bar and a mounted
+built-in sibling widget; future Omarchy releases may need another adaptation.
+
+Other third-party widgets mounted inside Den receive a scoped `DrawerBarApi`
+owned by their drawer slot. These facades sit outside the stock visible-slot
+cache, so layout-triggered `prunePluginBarApis()` does not destroy them. They
+keep their per-plugin shell access and mirror the host's presentation/popout
+state. No packaged Omarchy files are modified.
+
+Diagnostics: `omarchy-shell so.den status` reports the configured and mounted
+IDs plus a per-widget `barPresent` flag. `omarchy-shell so.den toggle` opens or
+closes the drawer.
+
+### Layout-change regression check
+
+With drawer-owned facades, repeatedly running the stock bar's
+`prunePluginBarApis()` preserves every tucked widget's live bar reference, and
+plugin panels position beside the drawer instead of the stock bar.
+
+## WeChat attention reveal
+
+Hidden WeChat tray icons appear temporarily before the Den chevron while their
+icon changes signal unread-message blinking, then hide again after 1250 ms
+without updates. The pinned/hidden tray configuration is preserved.
+`revealAttentionIds` selects watched app IDs and defaults to `["wechat"]`.
+The same temporary button also handles `NeedsAttention`, activation,
+middle-click and scrolling. Nonvisual icon listeners use `Instantiator`.
+
 ## Gestures
 
 | Action | How |
@@ -98,6 +133,7 @@ The two keys above hold the persisted values if you prefer to edit
 - `manifest.json` — plugin metadata (bar-widget kind)
 - `Den.qml` — the widget
 - `DenModel.js` — pure config/tray helpers
+- `DrawerBarApi.qml` — scoped bar facade for widgets mounted inside the drawer
 
 ## License
 
