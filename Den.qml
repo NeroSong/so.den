@@ -138,6 +138,58 @@ BarWidget {
 
   readonly property var trayPinnedIds: DenModel.stringList(trayState.pinned)
   readonly property var trayHiddenIds: DenModel.stringList(trayState.hidden)
+  // Keep an app that explicitly asks for attention reachable without turning
+  // it into a permanently pinned tray item. By default this is WeChat; the
+  // matching ids can be changed with Den's `revealAttentionIds` setting.
+  //
+  // WeChat does not use the StatusNotifier NeedsAttention state. It leaves
+  // Status as Active and emits NewIcon every 500ms while unread messages make
+  // its icon blink, so we also track recent icon updates for these ids.
+  readonly property var revealAttentionIds: DenModel.stringList(
+    root.setting("revealAttentionIds", ["wechat"]))
+  property var recentAttentionIconIds: ({})
+  readonly property var attentionTrayItems: {
+    var out = []
+    var items = root.liveTrayItems
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i]
+      var itemId = String(item.id || "")
+      if (item.status !== Status.NeedsAttention && recentAttentionIconIds[itemId] !== true) continue
+      for (var j = 0; j < root.revealAttentionIds.length; j++) {
+        if (DenModel.itemNamed(item, root.revealAttentionIds[j])) {
+          out.push(item)
+          break
+        }
+      }
+    }
+    return out
+  }
+
+  function watchesAttention(item) {
+    for (var i = 0; i < root.revealAttentionIds.length; i++) {
+      if (DenModel.itemNamed(item, root.revealAttentionIds[i])) return true
+    }
+    return false
+  }
+
+  function noteAttentionIconChange(item) {
+    if (!item || !root.watchesAttention(item)) return
+    var itemId = String(item.id || "")
+    if (!itemId) return
+    var next = {}
+    for (var id in root.recentAttentionIconIds) next[id] = root.recentAttentionIconIds[id]
+    next[itemId] = true
+    root.recentAttentionIconIds = next
+    attentionQuietTimer.restart()
+  }
+
+  // A normal WeChat icon does not update on its own. Once the 500ms blink
+  // stream stops, let its temporary button disappear shortly afterwards.
+  Timer {
+    id: attentionQuietTimer
+    interval: 1250
+    onTriggered: root.recentAttentionIconIds = ({})
+  }
 
   function trayItemName(item) {
     var t = String(item.title || "").trim()
@@ -1111,8 +1163,8 @@ BarWidget {
 
   // --- layout ------------------------------------------------------------------
 
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
+  implicitWidth: barContent.implicitWidth
+  implicitHeight: barContent.implicitHeight
 
   // The chevron points toward wherever the overflow appears, based purely on
   // where the bar sits: top bar -> down, bottom -> up, left -> right,
@@ -1126,7 +1178,10 @@ BarWidget {
   // under the drawer.
   Item {
     id: hiddenHost
-    anchors.fill: button
+    x: barContent.x + button.x
+    y: barContent.y + button.y
+    width: button.width
+    height: button.height
     visible: false
 
     Repeater {
@@ -1135,25 +1190,50 @@ BarWidget {
     }
   }
 
-  BarIconButton {
-    id: button
-    anchors.fill: parent
-    bar: root.bar
-    scale: root.extOverZone ? 1.18 : 1.0
-    Behavior on scale {
-      NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+  // Listen to the live StatusNotifier objects even while their tiles are
+  // tucked into Den. This catches WeChat's NewIcon-driven unread blink.
+  Instantiator {
+    model: root.liveTrayItems
+    delegate: Connections {
+      required property var modelData
+      target: modelData
+      function onIconChanged() {
+        root.noteAttentionIconChange(modelData)
+      }
     }
-    text: root.chevronGlyph
-    tooltipText: "Den"
-    onPressed: function(b) {
-      if (b !== Qt.LeftButton) return
-      if (root.menuOpen) root.close()
-      else root.open()
+  }
+
+  Row {
+    id: barContent
+    anchors.verticalCenter: parent.verticalCenter
+
+    Repeater {
+      model: root.attentionTrayItems
+      AttentionTrayButton {}
+    }
+
+    BarIconButton {
+      id: button
+      bar: root.bar
+      scale: root.extOverZone ? 1.18 : 1.0
+      Behavior on scale {
+        NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+      }
+      text: root.chevronGlyph
+      tooltipText: "Den"
+      onPressed: function(b) {
+        if (b !== Qt.LeftButton) return
+        if (root.menuOpen) root.close()
+        else root.open()
+      }
     }
   }
 
   Rectangle {
-    anchors.fill: button
+    x: barContent.x + button.x
+    y: barContent.y + button.y
+    width: button.width
+    height: button.height
     anchors.margins: -Style.space(2)
     radius: Math.max(4, Style.cornerRadius)
     color: Util.alpha(Color.accent, root.extOverZone ? 0.45 : 0.22)
@@ -1855,6 +1935,35 @@ BarWidget {
       visible: trayIconRoot.symbolic
       colorization: 1.0
       colorizationColor: root.foreground
+    }
+  }
+
+  // An attention-requesting hidden tray item sits immediately before Den's
+  // chevron. It still uses the app's live StatusNotifier icon, so WeChat's
+  // own blink animation remains visible, and disappears as soon as the app
+  // returns to Active.
+  component AttentionTrayButton: BarIconButton {
+    id: attentionButton
+    required property var modelData
+    bar: root.bar
+    tooltipText: root.trayTooltip(modelData)
+    iconComponent: Component {
+      TrayIcon {
+        width: Style.space(12)
+        height: Style.space(12)
+        icon: attentionButton.modelData.icon
+      }
+    }
+    onPressed: function(mouseButton) {
+      if (mouseButton === Qt.MiddleButton) attentionButton.modelData.secondaryActivate()
+      else if (attentionButton.modelData.onlyMenu) {
+        root.openTrayMenu(attentionButton.modelData, attentionButton, { x: width / 2, y: height / 2 })
+      } else if (mouseButton === Qt.LeftButton) {
+        attentionButton.modelData.activate()
+      }
+    }
+    onWheelMoved: function(delta) {
+      attentionButton.modelData.scroll(delta, false)
     }
   }
 

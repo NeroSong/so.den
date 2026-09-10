@@ -14,6 +14,15 @@ New tray apps and plugin widgets pile up on the bar. Den gives them one home:
 unpinned tray apps appear automatically, and any bar widget can be dragged in
 — leaving your bar minimal and your overflow one click away.
 
+## WeChat attention reveal
+
+Hidden WeChat tray icons appear temporarily before the Den chevron while their
+icon changes signal unread-message blinking, then hide again after 1250 ms
+without updates. The pinned/hidden tray configuration is preserved.
+`revealAttentionIds` selects watched app IDs and defaults to `["wechat"]`.
+The same temporary button also handles `NeedsAttention`, activation,
+middle-click and scrolling. Nonvisual icon listeners use `Instantiator`.
+
 ## Gestures
 
 | Action | How |
