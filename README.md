@@ -14,6 +14,40 @@ New tray apps and plugin widgets pile up on the bar. Den gives them one home:
 unpinned tray apps appear automatically, and any bar widget can be dragged in
 — leaving your bar minimal and your overflow one click away.
 
+## Local fork: Omarchy 4.0.3 compatibility
+
+This fork restores tucked widgets on Omarchy 4.0.3-1.
+
+The stock bar now injects a scoped `PluginBarApi`, without the widget registry,
+full shell config, or drag state that Den used. Den locates the host through a
+built-in sibling widget in the same visual tree. This is an internal compatibility
+bridge, **not a supported public API**: Den itself gains access to the real bar
+and shell, just as on older versions. It requires the stock bar and a mounted
+built-in sibling widget; future Omarchy releases may need another adaptation.
+Other third-party widgets mounted inside Den receive their own scoped facade.
+No packaged Omarchy files are modified.
+
+The local installation is a symlink:
+`~/.config/omarchy/plugins/so.den -> /home/nero/Work/so.den`.
+Edit this checkout, then run `omarchy-shell shell rescanPlugins` or
+`omarchy restart shell` if the symlinked source change is not picked up.
+Avoid `omarchy plugin update so.den` while this checkout has local edits.
+
+Diagnostics: `omarchy-shell so.den status` reports configured, resolved and
+mounted IDs. `omarchy-shell so.den toggle` opens/closes the instance owning the
+IPC target; with multiple monitors this is one instance, not all of them.
+
+Verified locally on 2026-09-10: manifest validation, `git diff --check`, shell
+restart, all eight configured widgets mounted, and an expanded drawer screenshot
+showing plugin and tray icons. Drag/reorder, every plugin panel, and a fresh
+WeChat unread event have not been retested.
+
+Pre-switch files and shell config are backed up in
+`/home/nero/Work/den-upgrade-backups/20260910-192643/`.
+To roll back, remove only the installation symlink and move that backup's
+`plugin` directory back to `~/.config/omarchy/plugins/so.den`, then restart the
+shell. The fork checkout remains intact.
+
 ## WeChat attention reveal
 
 Hidden WeChat tray icons appear temporarily before the Den chevron while their

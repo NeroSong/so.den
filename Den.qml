@@ -28,6 +28,50 @@ BarWidget {
   id: root
   moduleName: "so.den"
 
+  // Omarchy 4.0.3 injects PluginBarApi into third-party widgets. Den is a
+  // container and needs the actual host to mount widgets and manage layout.
+  // This local compatibility bridge relies on the shared visual parent tree;
+  // it is not a public plugin API. Do not overwrite the injected bar facade.
+  readonly property var hostBar: {
+    if (root.bar && "barWidgetRegistry" in root.bar) return root.bar
+    // PanelWindow separates the host from its visual children. Find a
+    // built-in sibling widget, which still receives the real host Bar.
+    var top = root.parent
+    while (top && top.parent) top = top.parent
+    var queue = top ? [top] : []
+    for (var i = 0; i < queue.length; i++) {
+      var item = queue[i]
+      if (item === root) continue
+      if (item !== root && "bar" in item && item.bar
+          && "barWidgetRegistry" in item.bar
+          && "pluginBarApiFor" in item.bar) return item.bar
+      var children = item.children || []
+      for (var j = 0; j < children.length; j++) queue.push(children[j])
+    }
+    return null
+  }
+
+  function barForWidget(id) {
+    var host = root.hostBar
+    if (!host) return root.bar
+    var manifest = root.pluginManifest(id)
+    if (manifest && manifest.__isFirstParty) return host
+    return typeof host.pluginBarApiFor === "function"
+      ? host.pluginBarApiFor(id, id, true) : host
+  }
+
+  function togglePanel() { if (root.menuOpen) root.close(); else root.open() }
+
+  IpcHandler {
+    target: "so.den"
+    function toggle(): void { root.togglePanel() }
+    function status(): string {
+      return JSON.stringify({hostAvailable: root.hostBar !== null,
+        configured: root.configuredIds, hidden: root.hiddenIds,
+        mounted: Object.keys(root.mountedMap), open: root.menuOpen})
+    }
+  }
+
   // --- shared lookups --------------------------------------------------------
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
@@ -45,8 +89,8 @@ BarWidget {
 
   // --- plugin registry -------------------------------------------------------
 
-  readonly property var registryWidgets: root.bar && root.bar.barWidgetRegistry
-    ? root.bar.barWidgetRegistry.widgets : ({})
+  readonly property var registryWidgets: root.hostBar && root.hostBar.barWidgetRegistry
+    ? root.hostBar.barWidgetRegistry.widgets : ({})
 
   // Raw configured list, read from the live in-memory config so rapid
   // successive changes never read a stale settings snapshot.
@@ -54,7 +98,7 @@ BarWidget {
     var rev = root.manageRevision
     void rev
     var list = null
-    var shell = root.bar && root.bar.shell
+    var shell = root.hostBar && root.hostBar.shell
     var config = shell ? shell.shellConfig : null
     if (config && config.bar && config.bar.layout) {
       var sections = DenModel.sections()
@@ -98,7 +142,7 @@ BarWidget {
   // mirroring how Bar.qml injects settings; falls back to manifest defaults.
   function settingsFor(id) {
     void root.manageRevision
-    var shell = root.bar && root.bar.shell
+    var shell = root.hostBar && root.hostBar.shell
     var s = shell ? DenModel.entrySettings(shell.shellConfig, id) : null
     return s !== null ? s : root.defaultsFor(id)
   }
@@ -122,7 +166,7 @@ BarWidget {
   }
 
   function pluginManifest(id) {
-    var reg = root.bar && root.bar.shell && root.bar.shell.pluginRegistry
+    var reg = root.hostBar && root.hostBar.shell && root.hostBar.shell.pluginRegistry
     return reg && reg.installedPlugins ? (reg.installedPlugins[String(id || "")] || null) : null
   }
 
@@ -131,7 +175,7 @@ BarWidget {
   readonly property var trayState: {
     var rev = root.manageRevision
     void rev
-    var shell = root.bar && root.bar.shell
+    var shell = root.hostBar && root.hostBar.shell
     var config = shell ? shell.shellConfig : null
     return DenModel.trayEntrySettings(config)
   }
@@ -237,7 +281,7 @@ BarWidget {
     for (var i = 0; i < values.length; i++) {
       var item = values[i]
       if (item.status === Status.Passive) continue
-      if (DenModel.ownedByOmarchy(item, root.bar && root.bar.layoutConfig)) continue
+      if (DenModel.ownedByOmarchy(item, root.hostBar && root.hostBar.layoutConfig)) continue
       out.push(item)
     }
     return out
@@ -269,7 +313,7 @@ BarWidget {
   }
 
   function persistTrayState(pinned, hidden) {
-    var shell = root.bar && root.bar.shell
+    var shell = root.hostBar && root.hostBar.shell
     if (!shell || typeof shell.updateEntryInline !== "function") return
     shell.updateEntryInline("omarchy.tray", { id: "omarchy.tray", pinned: pinned, hidden: hidden })
   }
@@ -437,7 +481,7 @@ BarWidget {
   property real resizeScreenY0: 0
   property bool resizeBaselineReady: false
 
-  readonly property string barPos: root.bar ? String(root.bar.position || "top") : "top"
+  readonly property string barPos: root.hostBar ? String(root.hostBar.position || "top") : "top"
 
   function resizeBegin(axis, wSign, hSign) {
     if (root.resizeAxis) return
@@ -591,7 +635,7 @@ BarWidget {
   }
 
   function updateEject(p) {
-    var isVertical = root.bar && (root.bar.position === "left" || root.bar.position === "right")
+    var isVertical = root.hostBar && (root.hostBar.position === "left" || root.hostBar.position === "right")
     if (isVertical)
       root.ejectArmed = p.x <= root.ejectStripHeight || p.x < 0
     else
@@ -829,19 +873,19 @@ BarWidget {
 
   function updateBarDropTarget(globalX, globalY) {
     var win = button.QsWindow ? button.QsWindow.window : null
-    if (!root.bar || !win) return
+    if (!root.hostBar || !win) return
     var off = root.monitorOffsetFor(win.screen)
     var lx = globalX - off.x
     var ly = globalY - off.y
 
     var origin
     try {
-      origin = root.bar.windowScreenPoint({ x: 0, y: 0 }, win)
+      origin = root.hostBar.windowScreenPoint({ x: 0, y: 0 }, win)
     } catch (e) {
       return
     }
 
-    var slots = root.bar.moduleSlots || []
+    var slots = root.hostBar.moduleSlots || []
     var best = null
     var bestDist = Infinity
     for (var i = 0; i < slots.length; i++) {
@@ -886,13 +930,13 @@ BarWidget {
   // exactly on our slot makes the bar try to reorder next to us first, which
   // is a safe no-op once the module left the layout.
 
-  readonly property bool extDragActive: root.bar ? root.bar.barDragSource !== null : false
+  readonly property bool extDragActive: root.hostBar ? root.hostBar.barDragSource !== null : false
   property string extDragId: ""
   property bool extOverZone: false
 
   onExtDragActiveChanged: {
     if (root.extDragActive) {
-      var slot = root.bar ? root.bar.barDragSource : null
+      var slot = root.hostBar ? root.hostBar.barDragSource : null
       root.extDragId = slot && slot.moduleName ? String(slot.moduleName) : ""
       root.extOverZone = false
       return
@@ -906,9 +950,9 @@ BarWidget {
   }
 
   function updateExtZone() {
-    if (!root.extDragActive || !root.bar) return
-    var x = root.bar.barDragSceneX
-    var y = root.bar.barDragSceneY
+    if (!root.extDragActive || !root.hostBar) return
+    var x = root.hostBar.barDragSceneX
+    var y = root.hostBar.barDragSceneY
 
     // Chevron hit area, padded a little for forgiving drops.
     var pad = Style.space(3)
@@ -951,7 +995,7 @@ BarWidget {
   }
 
   Connections {
-    target: root.bar
+    target: root.hostBar
     function onBarDragSceneXChanged() { root.updateExtZone() }
     function onBarDragSceneYChanged() { root.updateExtZone() }
   }
@@ -1214,7 +1258,7 @@ BarWidget {
 
     BarIconButton {
       id: button
-      bar: root.bar
+      bar: root.hostBar
       scale: root.extOverZone ? 1.18 : 1.0
       Behavior on scale {
         NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
@@ -1299,8 +1343,8 @@ BarWidget {
         w.open()
         toggled = true
       }
-      if (!toggled && root.bar && typeof root.bar.shell.toggle === "function") {
-        root.bar.shell.toggle(id, "{}")
+      if (!toggled && root.hostBar && typeof root.hostBar.shell.toggle === "function") {
+        root.hostBar.shell.toggle(id, "{}")
       }
     }
   }
@@ -1322,7 +1366,7 @@ BarWidget {
       onLoaded: {
         var w = loader.item
         if (!w) return
-        if ("bar" in w) w.bar = root.bar
+        if ("bar" in w) w.bar = root.barForWidget(slot.widgetId)
         if ("moduleName" in w) w.moduleName = slot.widgetId
         if ("settings" in w) w.settings = root.settingsFor(slot.widgetId)
         if ("anchorItem" in w) w.anchorItem = root.button
@@ -1379,7 +1423,7 @@ BarWidget {
     id: menuPopup
     anchorItem: button
     owner: root
-    bar: root.bar
+    bar: root.hostBar
     open: root.menuOpen
     // Tighter than the shell default (14): the tile grid should hug the card.
     padding: Style.space(3)
@@ -1945,7 +1989,7 @@ BarWidget {
   component AttentionTrayButton: BarIconButton {
     id: attentionButton
     required property var modelData
-    bar: root.bar
+    bar: root.hostBar
     tooltipText: root.trayTooltip(modelData)
     iconComponent: Component {
       TrayIcon {
@@ -2184,13 +2228,13 @@ BarWidget {
   // drawer can mount it. Showing it does the reverse.
 
   function layoutHasId(id) {
-    var shell = root.bar && root.bar.shell
+    var shell = root.hostBar && root.hostBar.shell
     var config = shell ? shell.shellConfig : null
     return DenModel.layoutHas(config, id)
   }
 
   function pluginsHasId(id) {
-    var shell = root.bar && root.bar.shell
+    var shell = root.hostBar && root.hostBar.shell
     var config = shell ? shell.shellConfig : null
     return DenModel.pluginsHas(config, id)
   }
@@ -2213,13 +2257,13 @@ BarWidget {
   }
 
   function mutateConfig(mutator) {
-    var shell = root.bar && root.bar.shell
+    var shell = root.hostBar && root.hostBar.shell
     if (!shell || typeof shell.mutateShellConfig !== "function") return
     shell.mutateShellConfig(mutator)
   }
 
   function removeFromLayoutAndKeepEnabled(key) {
-    var shell = root.bar && root.bar.shell
+    var shell = root.hostBar && root.hostBar.shell
     if (!shell || !shell.shellConfig) return
     var inLayout = root.layoutHasId(key)
     var inPlugins = root.pluginsHasId(key)
@@ -2266,7 +2310,7 @@ BarWidget {
   // release over the bar) it inserts exactly before/after it; without one it
   // lands at the right-section end, just before omarchy.power.
   function removeFromPluginsAndAddToLayout(key, region, anchorName, after) {
-    var shell = root.bar && root.bar.shell
+    var shell = root.hostBar && root.hostBar.shell
     if (!shell || !shell.shellConfig) return
     var inLayout = root.layoutHasId(key)
     var inPlugins = root.pluginsHasId(key)
@@ -2349,7 +2393,7 @@ BarWidget {
   }
 
   function ensureConfiguredEnabled(key) {
-    var shell = root.bar && root.bar.shell
+    var shell = root.hostBar && root.hostBar.shell
     if (!shell || !shell.shellConfig) return
     if (root.layoutHasId(key)) return
     if (root.pluginsHasId(key)) return
@@ -2364,9 +2408,9 @@ BarWidget {
     })
   }
 
-  property var reconcileRegistry: root.bar ? root.bar.shell.pluginRegistry : null
+  readonly property var reconcileRegistry: root.hostBar ? root.hostBar.shell.pluginRegistry : null
 
-  onBarChanged: root.reconcileRegistry = root.bar ? root.bar.shell.pluginRegistry : null
+  onHostBarChanged: reconcileTimer.restart()
 
   Connections {
     target: root.reconcileRegistry
