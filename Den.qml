@@ -51,13 +51,20 @@ BarWidget {
     return null
   }
 
-  function barForWidget(id) {
+  Component { id: drawerBarApiComponent; DrawerBarApi {} }
+
+  function barForWidget(id, slot, widget) {
     var host = root.hostBar
     if (!host) return root.bar
     var manifest = root.pluginManifest(id)
     if (manifest && manifest.__isFirstParty) return host
-    return typeof host.pluginBarApiFor === "function"
-      ? host.pluginBarApiFor(id, id, true) : host
+    // A hidden widget is not in the stock bar's moduleSlots. An API from
+    // pluginBarApiFor() would be pruned on the next visible layout change.
+    slot.ownedBarApi = drawerBarApiComponent.createObject(slot, {
+      host: host, widget: widget, pluginId: id, moduleName: id,
+      shell: host.shell.pluginShellForId(id)
+    })
+    return slot.ownedBarApi
   }
 
   function togglePanel() { if (root.menuOpen) root.close(); else root.open() }
@@ -68,7 +75,11 @@ BarWidget {
     function status(): string {
       return JSON.stringify({hostAvailable: root.hostBar !== null,
         configured: root.configuredIds, hidden: root.hiddenIds,
-        mounted: Object.keys(root.mountedMap), open: root.menuOpen})
+        mounted: Object.keys(root.mountedMap),
+        widgetBars: root.hiddenIds.map(function(id) {
+          var w = root.mountedItem(id)
+          return {id: id, barPresent: !!(w && w.bar)}
+        }), open: root.menuOpen})
     }
   }
 
@@ -1353,6 +1364,7 @@ BarWidget {
     id: slot
     required property int index
     required property var modelData
+    property var ownedBarApi: null
     readonly property string widgetId: String(modelData || "")
     readonly property var component: root.registryWidgets[widgetId] ? root.registryWidgets[widgetId].component : null
 
@@ -1366,7 +1378,7 @@ BarWidget {
       onLoaded: {
         var w = loader.item
         if (!w) return
-        if ("bar" in w) w.bar = root.barForWidget(slot.widgetId)
+        if ("bar" in w) w.bar = root.barForWidget(slot.widgetId, slot, w)
         if ("moduleName" in w) w.moduleName = slot.widgetId
         if ("settings" in w) w.settings = root.settingsFor(slot.widgetId)
         if ("anchorItem" in w) w.anchorItem = root.button

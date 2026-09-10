@@ -24,7 +24,10 @@ built-in sibling widget in the same visual tree. This is an internal compatibili
 bridge, **not a supported public API**: Den itself gains access to the real bar
 and shell, just as on older versions. It requires the stock bar and a mounted
 built-in sibling widget; future Omarchy releases may need another adaptation.
-Other third-party widgets mounted inside Den receive their own scoped facade.
+Other third-party widgets mounted inside Den receive a scoped `DrawerBarApi`
+owned by their drawer slot. These facades are outside the stock visible-slot
+cache, so layout-triggered `prunePluginBarApis()` does not destroy them. They
+retain per-plugin shell access and mirror the host presentation/popout state.
 No packaged Omarchy files are modified.
 
 The local installation is a symlink:
@@ -47,6 +50,17 @@ Pre-switch files and shell config are backed up in
 To roll back, remove only the installation symlink and move that backup's
 `plugin` directory back to `~/.config/omarchy/plugins/so.den`, then restart the
 shell. The fork checkout remains intact.
+
+### Layout-change regression check
+
+On 2026-09-10, explicitly running the stock bar's `prunePluginBarApis()`
+reproduced null bar references for all three tucked third-party widgets before
+the fix. With drawer-owned facades, repeated pruning preserved all eight bar
+references; Pane and Time Machine panels were visually verified beside Den.
+The user subsequently confirmed the panel-position fix in actual desktop use.
+The agent did not run a full drag/reorder gesture matrix. Temporary pruning
+and panel-opening IPC test methods were removed after verification; the
+read-only `status` method retains per-widget `barPresent` diagnostics.
 
 ## WeChat attention reveal
 
