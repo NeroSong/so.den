@@ -1244,7 +1244,10 @@ BarWidget {
     visible: false
 
     Repeater {
-      model: root.hiddenIds
+      // Keep slots stable while the registry unregisters widgets one by one.
+      // A filtered array model rebuilds every remaining child on each change.
+      // Each slot's Loader already tracks its own component availability.
+      model: root.configuredIds
       DrawerWidget {}
     }
   }
@@ -1372,13 +1375,20 @@ BarWidget {
     readonly property string widgetId: String(modelData || "")
     readonly property var component: root.registryWidgets[widgetId] ? root.registryWidgets[widgetId].component : null
 
-    implicitWidth: loader.item ? loader.item.implicitWidth : root.button.implicitWidth
-    implicitHeight: loader.item ? loader.item.implicitHeight : root.button.implicitHeight
+    implicitWidth: loader.item ? loader.item.implicitWidth : button.implicitWidth
+    implicitHeight: loader.item ? loader.item.implicitHeight : button.implicitHeight
 
     Loader {
       id: loader
       anchors.fill: parent
       sourceComponent: slot.component
+      onItemChanged: {
+        if (!item) {
+          root.unregisterMounted(slot.widgetId)
+          if (slot.ownedBarApi) slot.ownedBarApi.destroy()
+          slot.ownedBarApi = null
+        }
+      }
       onLoaded: {
         var w = loader.item
         if (!w) return
