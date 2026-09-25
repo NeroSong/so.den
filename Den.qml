@@ -962,6 +962,10 @@ BarWidget {
 
   function updateExtZone() {
     if (!root.extDragActive || !root.hostBar) return
+    if (button.QsWindow.window !== root.hostBar.barDragWindow) {
+      root.extOverZone = false
+      return
+    }
     var x = root.hostBar.barDragSceneX
     var y = root.hostBar.barDragSceneY
 
@@ -2390,8 +2394,18 @@ BarWidget {
     var idx = list.indexOf(key)
     if (hide && idx === -1) list.push(key)
     else if (!hide && idx !== -1) list.splice(idx, 1)
-    if (hide) root.removeFromLayoutAndKeepEnabled(key)
-    else root.removeFromPluginsAndAddToLayout(key)
+    if (hide) {
+      // Finish the stock bar's release/reorder handler before rebuilding slots.
+      // Capture everything needed: Den itself may be recreated by that reorder.
+      var shell = root.hostBar && root.hostBar.shell
+      var denId = root.moduleName
+      if (!shell) return
+      Qt.callLater(function() {
+        shell.mutateShellConfig(function(c) { DenModel.tuckWidget(c, denId, key) })
+      })
+      return
+    }
+    root.removeFromPluginsAndAddToLayout(key)
     root.persistWidgets(list)
   }
 

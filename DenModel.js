@@ -124,3 +124,38 @@ function ownedByOmarchy(item, layout) {
   return itemNamed(item, "localsend")
     || (layoutHasWidget(layout, "omarchy.dropbox") && itemNamed(item, "dropbox"))
 }
+
+// One transaction: never leave an enabled widget absent from both bar and Den.
+function tuckWidget(config, denId, widgetId) {
+  var den = findLayoutEntry(config, denId)
+  if (!den || typeof den !== "object" || !widgetId || widgetId === denId) return false
+  var source = findLayoutEntry(config, widgetId)
+  var plugins = Array.isArray(config.plugins) ? config.plugins : []
+  var target = null
+  for (var i = 0; i < plugins.length; i++) {
+    if (entryId(plugins[i]) !== widgetId) continue
+    if (typeof plugins[i] === "string") plugins[i] = { id: widgetId }
+    target = plugins[i]
+    break
+  }
+  if (!source && !target) return false
+  if (!target) { target = { id: widgetId }; plugins.push(target) }
+  if (source && typeof source === "object") {
+    for (var key in source) {
+      if (key !== "id" && key !== "widgets" && key !== "icons" && !(key in target))
+        target[key] = source[key]
+    }
+  }
+  config.plugins = plugins
+  var regions = sections()
+  for (var s = 0; s < regions.length; s++) {
+    var region = regions[s]
+    config.bar.layout[region] = sectionEntries(config, region).filter(function(e) {
+      return entryId(e) !== widgetId
+    })
+  }
+  var list = stringList(den.widgets)
+  if (list.indexOf(widgetId) === -1) list.push(widgetId)
+  den.widgets = list
+  return true
+}

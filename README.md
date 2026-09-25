@@ -159,3 +159,17 @@ The two keys above hold the persisted values if you prefer to edit
 ## License
 
 [MIT](LICENSE)
+
+### Atomic tuck fix (2026-09-11)
+
+A drop previously saved the layout removal and Den membership separately.
+The first save could rebuild the slot while the drag-release handler was still
+running, leaving the widget enabled in `plugins[]` but absent from Den.
+Tucking now defers until the native release handler completes and updates both
+lists in one configuration transaction. Only Den on the drag's window accepts
+the drop. Existing inline settings are retained.
+
+Run `node tests/tuck-widget.cjs` for transaction, idempotence, settings and
+interrupted-tuck recovery checks. Xray recovery through the live tuck path was
+verified to mount immediately and change only its Den membership. A fresh
+physical drag gesture has not yet been revalidated.
